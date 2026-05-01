@@ -31,7 +31,8 @@ const itemsWithFavs = items.map(i => {
     };
 });
 
-const adjacency = db.prepare("SELECT pokemon_a, pokemon_b, score FROM adjacency").all();
+const adjacencyRaw = db.prepare("SELECT pokemon_a, pokemon_b, score FROM adjacency").all();
+const adjacency = adjacencyRaw.map(a => [a.pokemon_a, a.pokemon_b, a.score]);
 const habitats = db.prepare("SELECT * FROM habitats").all();
 
 if (!fs.existsSync("public")) fs.mkdirSync("public");

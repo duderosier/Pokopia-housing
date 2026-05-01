@@ -73,10 +73,10 @@ export default function App() {
           pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
           itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
           data.adjacency.forEach((a: any) => {
-            if (!adj.has(a.pokemon_a)) adj.set(a.pokemon_a, new Map());
-            if (!adj.has(a.pokemon_b)) adj.set(a.pokemon_b, new Map());
-            adj.get(a.pokemon_a)!.set(a.pokemon_b, a.score);
-            adj.get(a.pokemon_b)!.set(a.pokemon_a, a.score);
+            if (!adj.has(a[0])) adj.set(a[0], new Map());
+            if (!adj.has(a[1])) adj.set(a[1], new Map());
+            adj.get(a[0])!.set(a[1], a[2]);
+            adj.get(a[1])!.set(a[0], a[2]);
           });
           data.habitats.forEach((h: any) => {
             opposites[h.habitat] = h.opposite;
