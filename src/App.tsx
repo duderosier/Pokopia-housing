@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, Home, CheckCircle2, Building, Trash2, ShieldAlert, Lock, Unlock, Save, Download, X, Loader2 } from 'lucide-react';
+import { Search, Plus, Home, CheckCircle2, Building, Trash2, ShieldAlert, Lock, Unlock, Save, Download, X, Loader2, MapPin } from 'lucide-react';
 
 const PREFIX = 'https://matthewlincoln.net/pokopia-housing-solver/';
 
@@ -33,29 +33,45 @@ interface PlacedItem {
   itemId: number;
 }
 
+interface AreaState {
+  id: string;
+  name: string;
+  selectedPokemonIds: number[];
+  placedItems: PlacedItem[];
+  smallCount: number;
+  mediumCount: number;
+  largeCount: number;
+  lockedAssignments: Record<string, number[]>;
+}
+
 interface SavedQuery {
   id: string;
   name: string;
   timestamp: number;
   state: {
-     selectedPokemonIds: number[];
-     placedItems: PlacedItem[];
-     smallCount: number;
-     mediumCount: number;
-     largeCount: number;
-     lockedAssignments: Record<string, number[]>;
+     areas: AreaState[];
   };
 }
 
 export default function App() {
   const [loaded, setLoaded] = useState(data !== null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPokemonIds, setSelectedPokemonIds] = useState<number[]>([]);
-  const [placedItems, setPlacedItems] = useState<PlacedItem[]>([]);
-  const [smallCount, setSmallCount] = useState(1);
-  const [mediumCount, setMediumCount] = useState(3);
-  const [largeCount, setLargeCount] = useState(2);
-  const [lockedAssignments, setLockedAssignments] = useState<Record<string, number[]>>({});
+
+  const [areas, setAreas] = useState<AreaState[]>([
+    {
+      id: 'default',
+      name: 'Main Area',
+      selectedPokemonIds: [],
+      placedItems: [],
+      smallCount: 1,
+      mediumCount: 3,
+      largeCount: 2,
+      lockedAssignments: {}
+    }
+  ]);
+  const [activeAreaId, setActiveAreaId] = useState<string>('default');
+  const activeArea = areas.find(a => a.id === activeAreaId) || areas[0];
+
   const [search, setSearch] = useState('');
   
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
@@ -94,18 +110,43 @@ export default function App() {
     try {
       if (!loaded) return;
       const saved = localStorage.getItem('pokopia_queries');
-      if (saved) setSavedQueries(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Handle old format
+        if (parsed.length > 0 && parsed[0].state && typeof parsed[0].state.smallCount === 'number') {
+           const migrated = parsed.map((q: any) => ({
+             ...q,
+             state: {
+               areas: [{
+                 id: 'default',
+                 name: 'Main Area',
+                 selectedPokemonIds: q.state.selectedPokemonIds || [],
+                 placedItems: q.state.placedItems || [],
+                 smallCount: q.state.smallCount || 0,
+                 mediumCount: q.state.mediumCount || 0,
+                 largeCount: q.state.largeCount || 0,
+                 lockedAssignments: q.state.lockedAssignments || {}
+               }]
+             }
+           }));
+           setSavedQueries(migrated);
+        } else {
+           setSavedQueries(parsed);
+        }
+      }
     } catch {}
   }, [loaded]);
+
+  const updateActiveArea = (updates: Partial<AreaState>) => {
+    setAreas(prev => prev.map(a => a.id === activeAreaId ? { ...a, ...updates } : a));
+  };
 
   const saveQuery = () => {
     const q: SavedQuery = {
       id: Date.now().toString(),
-      name: queryName || `Query (${new Date().toLocaleDateString()})`,
+      name: queryName || `Save (${new Date().toLocaleDateString()})`,
       timestamp: Date.now(),
-      state: {
-        selectedPokemonIds, placedItems, smallCount, mediumCount, largeCount, lockedAssignments
-      }
+      state: { areas }
     };
     const next = [q, ...savedQueries];
     setSavedQueries(next);
@@ -114,12 +155,10 @@ export default function App() {
   };
 
   const loadQuery = (q: SavedQuery) => {
-    setSelectedPokemonIds(q.state.selectedPokemonIds);
-    setPlacedItems(q.state.placedItems || []);
-    setSmallCount(q.state.smallCount);
-    setMediumCount(q.state.mediumCount);
-    setLargeCount(q.state.largeCount);
-    setLockedAssignments(q.state.lockedAssignments || {});
+    if (q.state.areas && q.state.areas.length > 0) {
+      setAreas(q.state.areas);
+      setActiveAreaId(q.state.areas[0].id);
+    }
   };
 
   const deleteQuery = (id: string) => {
@@ -129,28 +168,52 @@ export default function App() {
   };
 
   const toggleLock = (houseId: string, pokemon: number[]) => {
-    setLockedAssignments(prev => {
-      const copy = { ...prev };
-      if (copy[houseId]) delete copy[houseId];
-      else copy[houseId] = [...pokemon];
-      return copy;
-    });
+    const copy = { ...activeArea.lockedAssignments };
+    if (copy[houseId]) delete copy[houseId];
+    else copy[houseId] = [...pokemon];
+    updateActiveArea({ lockedAssignments: copy });
   };
 
-  // SOLVER
+  const addNewArea = () => {
+    const newName = prompt("Enter area name (e.g. Withered Wasteland)");
+    if (!newName) return;
+    const newId = Date.now().toString();
+    setAreas(prev => [...prev, {
+      id: newId,
+      name: newName,
+      selectedPokemonIds: [],
+      placedItems: [],
+      smallCount: 1,
+      mediumCount: 1,
+      largeCount: 1,
+      lockedAssignments: {}
+    }]);
+    setActiveAreaId(newId);
+  };
+  
+  const deleteActiveArea = () => {
+    if (areas.length === 1) return alert("You must have at least one area.");
+    if (confirm(`Are you sure you want to delete ${activeArea.name}?`)) {
+       const newAreas = areas.filter(a => a.id !== activeAreaId);
+       setAreas(newAreas);
+       setActiveAreaId(newAreas[0].id);
+    }
+  };
+
+  // SOLVER for ACTIVE AREA
   const { houses: assignedHouses, unhoused } = useMemo(() => {
     const houses: HouseAssignment[] = [];
-    for (let i = 0; i < largeCount; i++) houses.push({id: `L${i+1}`, size: 'large', capacity: 4, locked: false, pokemon: []});
-    for (let i = 0; i < mediumCount; i++) houses.push({id: `M${i+1}`, size: 'medium', capacity: 2, locked: false, pokemon: []});
-    for (let i = 0; i < smallCount; i++) houses.push({id: `S${i+1}`, size: 'small', capacity: 1, locked: false, pokemon: []});
+    for (let i = 0; i < activeArea.largeCount; i++) houses.push({id: `L${i+1}`, size: 'large', capacity: 4, locked: false, pokemon: []});
+    for (let i = 0; i < activeArea.mediumCount; i++) houses.push({id: `M${i+1}`, size: 'medium', capacity: 2, locked: false, pokemon: []});
+    for (let i = 0; i < activeArea.smallCount; i++) houses.push({id: `S${i+1}`, size: 'small', capacity: 1, locked: false, pokemon: []});
 
-    const unassignedIds = [...selectedPokemonIds];
+    const unassignedIds = [...activeArea.selectedPokemonIds];
     
     // Process locks
     for (const h of houses) {
-       if (lockedAssignments[h.id]) {
+       if (activeArea.lockedAssignments[h.id]) {
           h.locked = true;
-          h.pokemon = [...lockedAssignments[h.id]];
+          h.pokemon = [...activeArea.lockedAssignments[h.id]];
           h.pokemon.forEach(pid => {
              const idx = unassignedIds.indexOf(pid);
              if (idx !== -1) unassignedIds.splice(idx, 1);
@@ -260,16 +323,26 @@ export default function App() {
     bestAssignment.sort((a, b) => {
        if (a.pokemon.length === 0 && b.pokemon.length > 0) return 1;
        if (a.pokemon.length > 0 && b.pokemon.length === 0) return -1;
-       return b.capacity - a.capacity; /* Sort largest capacity first */
+       return b.capacity - a.capacity;
     });
 
     return { houses: bestAssignment, unhoused: bestUnhoused };
-  }, [selectedPokemonIds, smallCount, mediumCount, largeCount, lockedAssignments]);
+  }, [activeArea.selectedPokemonIds, activeArea.smallCount, activeArea.mediumCount, activeArea.largeCount, activeArea.lockedAssignments]);
 
   const togglePokemon = (id: number) => {
-    setSelectedPokemonIds(prev =>
-      prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
-    );
+    // Check if it's already in active area
+    if (activeArea.selectedPokemonIds.includes(id)) {
+      updateActiveArea({ selectedPokemonIds: activeArea.selectedPokemonIds.filter(pId => pId !== id) });
+    } else {
+      // Check if it's in another area
+      const otherAreaIndex = areas.findIndex(a => a.id !== activeAreaId && a.selectedPokemonIds.includes(id));
+      if (otherAreaIndex !== -1) {
+         // Should not be an option, but if we did click it somehow or want to allow moving:
+         // For now we just return since it shouldn't be an option.
+         return;
+      }
+      updateActiveArea({ selectedPokemonIds: [...activeArea.selectedPokemonIds, id] });
+    }
   };
 
   const filteredPokemon = useMemo(() => {
@@ -277,6 +350,17 @@ export default function App() {
     if (!search) return data.pokemon;
     return data.pokemon.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()));
   }, [search, loaded]);
+
+  // Find out what Pokemon are in other areas
+  const pokemonInOtherAreas = useMemo(() => {
+     const assigned = new Map<number, string>(); // pokemonID -> areaName
+     for (const a of areas) {
+        if (a.id !== activeAreaId) {
+           a.selectedPokemonIds.forEach(id => assigned.set(id, a.name));
+        }
+     }
+     return assigned;
+  }, [areas, activeAreaId]);
 
   if (!loaded) {
     return (
@@ -295,31 +379,62 @@ export default function App() {
     );
   }
 
-  const lockedSmall = Object.keys(lockedAssignments).filter(id => id.startsWith('S')).length;
-  const lockedMedium = Object.keys(lockedAssignments).filter(id => id.startsWith('M')).length;
-  const lockedLarge = Object.keys(lockedAssignments).filter(id => id.startsWith('L')).length;
+  const lockedSmall = Object.keys(activeArea.lockedAssignments).filter(id => id.startsWith('S')).length;
+  const lockedMedium = Object.keys(activeArea.lockedAssignments).filter(id => id.startsWith('M')).length;
+  const lockedLarge = Object.keys(activeArea.lockedAssignments).filter(id => id.startsWith('L')).length;
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans p-4 sm:p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        <header className="mb-10 text-center sm:text-left">
+        <header className="text-center sm:text-left pt-2 pb-6 border-b border-neutral-200">
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-neutral-900 flex items-center justify-center sm:justify-start gap-3">
             <Home className="w-10 h-10 text-indigo-600"/>
             Pokopia Housing Solver
           </h1>
-          <p className="text-neutral-500 mt-3 max-w-2xl text-sm sm:text-base">
+          <p className="text-neutral-500 mt-2 max-w-2xl text-sm sm:text-base">
             Optimize your Pokopia roommate assignments by matching likeminded Pokémon together and finding the items that fulfill the most favorites in a household.
           </p>
         </header>
+
+        {/* Areas Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          {areas.map(area => (
+             <button
+                key={area.id}
+                onClick={() => setActiveAreaId(area.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
+                   activeAreaId === area.id 
+                   ? 'bg-indigo-600 text-white shadow-md' 
+                   : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50 hover:text-neutral-900'
+                }`}
+             >
+                <MapPin className="w-4 h-4" />
+                {area.name}
+             </button>
+          ))}
+          <button
+             onClick={addNewArea}
+             className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg font-bold text-sm whitespace-nowrap transition-all bg-neutral-100 text-neutral-600 border border-neutral-200 border-dashed hover:bg-neutral-200 hover:text-neutral-900"
+          >
+             <Plus className="w-4 h-4" /> Add Area
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
           
           {/* L: Sidebar Settings */}
           <div className="xl:col-span-1 space-y-6">
              <div className="bg-white rounded-xl shadow-sm border border-neutral-200 p-5">
-               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-neutral-100 pb-2">
-                 <Building className="w-5 h-5 text-indigo-500"/> Houses
+               <h2 className="text-lg font-bold mb-4 flex items-center justify-between border-b border-neutral-100 pb-2">
+                 <div className="flex items-center gap-2">
+                   <Building className="w-5 h-5 text-indigo-500"/> Houses
+                 </div>
+                 {areas.length > 1 && (
+                   <button onClick={deleteActiveArea} className="text-red-500 hover:text-red-600 text-sm font-semibold flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2 py-1 rounded">
+                     <Trash2 className="w-3.5 h-3.5"/> Delete Area
+                   </button>
+                 )}
                </h2>
                <div className="space-y-4">
                  <div>
@@ -327,21 +442,21 @@ export default function App() {
                       Small (1 slot)
                       {lockedSmall > 0 && <span className="text-indigo-600 text-[10px] uppercase font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> {lockedSmall} locked</span>}
                    </label>
-                   <input type="number" min={lockedSmall} value={smallCount} onChange={e => setSmallCount(Math.max(lockedSmall, parseInt(e.target.value) || 0))} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                   <input type="number" min={lockedSmall} value={activeArea.smallCount} onChange={e => updateActiveArea({ smallCount: Math.max(lockedSmall, parseInt(e.target.value) || 0) })} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
                  </div>
                  <div>
                    <label className="block text-sm font-medium text-neutral-700 mb-1 flex justify-between">
                       Medium (2 slots)
                       {lockedMedium > 0 && <span className="text-indigo-600 text-[10px] uppercase font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> {lockedMedium} locked</span>}
                    </label>
-                   <input type="number" min={lockedMedium} value={mediumCount} onChange={e => setMediumCount(Math.max(lockedMedium, parseInt(e.target.value) || 0))} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                   <input type="number" min={lockedMedium} value={activeArea.mediumCount} onChange={e => updateActiveArea({ mediumCount: Math.max(lockedMedium, parseInt(e.target.value) || 0) })} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
                  </div>
                  <div>
                    <label className="block text-sm font-medium text-neutral-700 mb-1 flex justify-between">
                       Large (4 slots)
                       {lockedLarge > 0 && <span className="text-indigo-600 text-[10px] uppercase font-bold flex items-center gap-1"><Lock className="w-3 h-3"/> {lockedLarge} locked</span>}
                    </label>
-                   <input type="number" min={lockedLarge} value={largeCount} onChange={e => setLargeCount(Math.max(lockedLarge, parseInt(e.target.value) || 0))} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                   <input type="number" min={lockedLarge} value={activeArea.largeCount} onChange={e => updateActiveArea({ largeCount: Math.max(lockedLarge, parseInt(e.target.value) || 0) })} className="w-full rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
                  </div>
                </div>
              </div>
@@ -350,7 +465,7 @@ export default function App() {
               <div className="p-4 border-b border-neutral-100 bg-neutral-50/80">
                 <h2 className="text-base font-bold flex items-center justify-between mb-3">
                   Select Pokémon
-                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-semibold">{selectedPokemonIds.length} Selected</span>
+                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-semibold">{activeArea.selectedPokemonIds.length} Selected</span>
                 </h2>
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
@@ -365,19 +480,31 @@ export default function App() {
               </div>
               <div className="overflow-y-auto p-2 flex-1">
                 {filteredPokemon.map((p: any) => {
-                  const isSelected = selectedPokemonIds.includes(p.id);
+                  const isSelected = activeArea.selectedPokemonIds.includes(p.id);
+                  const otherAreaName = pokemonInOtherAreas.get(p.id);
+                  const isDisabled = !!otherAreaName;
+                  
                   return (
                     <button
                       key={p.id}
-                      onClick={() => togglePokemon(p.id)}
+                      onClick={() => !isDisabled && togglePokemon(p.id)}
+                      disabled={isDisabled}
                       className={`w-full text-left px-3 py-2 my-0.5 flex items-center gap-3 rounded-md transition-colors ${
-                        isSelected ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-neutral-50 border border-transparent'
+                        isSelected 
+                          ? 'bg-indigo-50 border border-indigo-100' 
+                          : isDisabled 
+                            ? 'opacity-50 cursor-not-allowed bg-neutral-50/50' 
+                            : 'hover:bg-neutral-50 border border-transparent'
                       }`}
                     >
-                      <img src={`${PREFIX}${p.image_path}`} alt={p.name} className="w-8 h-8 object-contain" />
+                      <img src={`${PREFIX}${p.image_path}`} alt={p.name} className={`w-8 h-8 object-contain ${isDisabled ? 'grayscale opacity-70' : ''}`} />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm text-neutral-900 truncate">{p.name}</div>
-                        <div className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">{p.habitat}</div>
+                        <div className={`font-semibold text-sm truncate ${isDisabled ? 'text-neutral-500' : 'text-neutral-900'}`}>{p.name}</div>
+                        {isDisabled ? (
+                           <div className="text-[10px] uppercase font-bold tracking-wider text-red-500 mt-0.5 max-w-full truncate overflow-ellipsis" title={`In ${otherAreaName}`}>In {otherAreaName}</div>
+                        ) : (
+                           <div className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">{p.habitat}</div>
+                        )}
                       </div>
                       {isSelected && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
                     </button>
@@ -388,17 +515,17 @@ export default function App() {
 
             <div className="bg-white rounded-xl shadow-sm border border-neutral-200 p-5">
               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-neutral-100 pb-2">
-                <Save className="w-5 h-5 text-indigo-500"/> Saved Queries
+                <Save className="w-5 h-5 text-indigo-500"/> Save Layouts
               </h2>
               <div className="flex gap-2 mb-4">
                  <input 
                    type="text" 
-                   placeholder="Query Name..." 
+                   placeholder="Save Name..." 
                    value={queryName}
                    onChange={e => setQueryName(e.target.value)}
                    className="flex-1 rounded-md border border-neutral-300 px-3 py-1.5 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm"
                  />
-                 <button onClick={saveQuery} disabled={selectedPokemonIds.length === 0} className="bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
+                 <button onClick={saveQuery} disabled={areas.every(a => a.selectedPokemonIds.length === 0)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold">
                    Save
                  </button>
               </div>
@@ -410,7 +537,7 @@ export default function App() {
                          <div className="text-[10px] text-neutral-500">{new Date(q.timestamp).toLocaleString()}</div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                         <button onClick={() => loadQuery(q)} title="Load details" className="p-1.5 bg-white border border-neutral-200 rounded text-indigo-600 hover:bg-indigo-50 transition">
+                         <button onClick={() => loadQuery(q)} title="Load Layout" className="p-1.5 bg-white border border-neutral-200 rounded text-indigo-600 hover:bg-indigo-50 transition">
                            <Download className="w-3.5 h-3.5" />
                          </button>
                          <button onClick={() => deleteQuery(q.id)} title="Delete" className="p-1.5 bg-white border border-neutral-200 rounded text-red-600 hover:bg-red-50 transition">
@@ -419,7 +546,7 @@ export default function App() {
                       </div>
                    </div>
                  ))}
-                 {savedQueries.length === 0 && <div className="text-sm text-neutral-500 text-center py-2">No saved queries.</div>}
+                 {savedQueries.length === 0 && <div className="text-sm text-neutral-500 text-center py-2">No saved layouts.</div>}
               </div>
             </div>
 
@@ -427,8 +554,8 @@ export default function App() {
 
           {/* R: Results */}
           <div className="xl:col-span-3 space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Housing Results</h2>
+            <div className="flex items-center justify-between border-b pb-4">
+              <h2 className="text-2xl font-bold flex items-center gap-2 border-indigo-600"><MapPin className="text-indigo-600"/> {activeArea.name} Housing</h2>
               {unhoused.length > 0 && (
                 <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
                   <ShieldAlert className="w-4 h-4" />
@@ -438,7 +565,7 @@ export default function App() {
             </div>
 
             {unhoused.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-4">
+              <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-4 mb-4">
                  <h3 className="text-sm font-bold text-amber-800 mb-3">Unable to fit these Pokémon:</h3>
                  <div className="flex flex-wrap gap-2">
                    {unhoused.map(id => (
@@ -456,8 +583,8 @@ export default function App() {
                 <HouseCard 
                   key={house.id} 
                   house={house} 
-                  placedItems={placedItems}
-                  setPlacedItems={setPlacedItems}
+                  activeArea={activeArea}
+                  updateActiveArea={updateActiveArea}
                   toggleLock={toggleLock}
                 />
               ))}
@@ -471,16 +598,16 @@ export default function App() {
 
 interface HouseCardProps {
   house: HouseAssignment;
-  placedItems: PlacedItem[];
-  setPlacedItems: React.Dispatch<React.SetStateAction<PlacedItem[]>>;
+  activeArea: AreaState;
+  updateActiveArea: (updates: Partial<AreaState>) => void;
   toggleLock: (hostId: string, pokemon: number[]) => void;
 }
 
-const HouseCard: React.FC<HouseCardProps> = ({ house, placedItems, setPlacedItems, toggleLock }) => {
+const HouseCard: React.FC<HouseCardProps> = ({ house, activeArea, updateActiveArea, toggleLock }) => {
   const [craftableOnly, setCraftableOnly] = useState(false);
 
   const pop = house.pokemon.map(id => pokemonData[id]);
-  const housePlacedItems = placedItems.filter(p => p.houseId === house.id).map(p => itemsData[p.itemId]);
+  const housePlacedItems = activeArea.placedItems.filter(p => p.houseId === house.id).map(p => itemsData[p.itemId]);
 
   const requiredFaves = new Map<string, number>();
   pop.forEach(p => {
@@ -538,11 +665,13 @@ const HouseCard: React.FC<HouseCardProps> = ({ house, placedItems, setPlacedItem
   }, [missingFaves, housePlacedItems, craftableOnly, house.pokemon.length]);
 
   const toggleItem = (itemId: number) => {
-    setPlacedItems((prev: PlacedItem[]) => {
-      const exists = prev.find(p => p.houseId === house.id && p.itemId === itemId);
-      if (exists) return prev.filter(p => !(p.houseId === house.id && p.itemId === itemId));
-      return [...prev, {houseId: house.id, itemId}];
-    });
+    const prev = activeArea.placedItems;
+    const exists = prev.find(p => p.houseId === house.id && p.itemId === itemId);
+    if (exists) {
+       updateActiveArea({ placedItems: prev.filter(p => !(p.houseId === house.id && p.itemId === itemId)) });
+    } else {
+       updateActiveArea({ placedItems: [...prev, {houseId: house.id, itemId}] });
+    }
   };
 
   const labelSize = house.size.charAt(0).toUpperCase() + house.size.slice(1);
