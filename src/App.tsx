@@ -199,6 +199,11 @@ export default function App() {
               
               let addedScore = 0;
               for (const existing of h.pokemon) {
+                 const exHab = pokemonData[existing].habitat;
+                 if (pokHab && exHab) {
+                    if (pokHab === exHab) addedScore += 50;
+                    else addedScore -= 20;
+                 }
                  addedScore += adj.get(pok)?.get(existing) || 0;
               }
               
@@ -220,18 +225,26 @@ export default function App() {
       
       let currentScore = 0;
       let housedCount = 0;
+      let habitatBonus = 0;
+      let habitatPenalty = 0;
       for (const h of currentHouses) {
         housedCount += h.pokemon.length;
         if (h.pokemon.length > 1) {
            for (let i = 0; i < h.pokemon.length; i++) {
+             const h1 = pokemonData[h.pokemon[i]].habitat;
              for (let j = i+1; j < h.pokemon.length; j++) {
+                const h2 = pokemonData[h.pokemon[j]].habitat;
+                if (h1 && h2) {
+                   if (h1 === h2) habitatBonus += 50;
+                   else if (h1 !== h2) habitatPenalty += 20;
+                }
                 currentScore += adj.get(h.pokemon[i])?.get(h.pokemon[j]) || 0;
              }
            }
         }
       }
       
-      const evalScore = housedCount * 10000 + currentScore;
+      const evalScore = housedCount * 100000 + habitatBonus * 100 - habitatPenalty * 100 + currentScore;
       if (evalScore > bestScore) {
          bestScore = evalScore;
          bestAssignment = currentHouses;
