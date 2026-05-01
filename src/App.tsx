@@ -62,7 +62,7 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) {
-      fetch('/data.json').then(res => res.json()).then(d => {
+      fetch(`${import.meta.env.BASE_URL}data.json`).then(res => res.json()).then(d => {
         data = d;
         pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
         itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
