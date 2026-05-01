@@ -31,4 +31,9 @@ const itemsWithFavs = items.map(i => {
     };
 });
 
-fs.writeFileSync("src/data.json", JSON.stringify({ pokemon: pokesWithFavs, items: itemsWithFavs }));
+const adjacency = db.prepare("SELECT pokemon_a, pokemon_b, score FROM adjacency").all();
+const habitats = db.prepare("SELECT * FROM habitats").all();
+
+if (!fs.existsSync("public")) fs.mkdirSync("public");
+fs.writeFileSync("public/data.json", JSON.stringify({ pokemon: pokesWithFavs, items: itemsWithFavs, adjacency, habitats }));
+

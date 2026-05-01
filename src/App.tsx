@@ -1,25 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import data from './data.json';
-import { Search, Plus, Home, CheckCircle2, Building, Trash2, ShieldAlert, Lock, Unlock, Save, Download, X } from 'lucide-react';
+import { Search, Plus, Home, CheckCircle2, Building, Trash2, ShieldAlert, Lock, Unlock, Save, Download, X, Loader2 } from 'lucide-react';
 
 const PREFIX = 'https://matthewlincoln.net/pokopia-housing-solver/';
 
-// --- PREPARE DATA ---
-const pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
-const itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
-
-const adj = new Map<number, Map<number, number>>();
-data.adjacency.forEach((a: any) => {
-  if (!adj.has(a.pokemon_a)) adj.set(a.pokemon_a, new Map());
-  if (!adj.has(a.pokemon_b)) adj.set(a.pokemon_b, new Map());
-  adj.get(a.pokemon_a)!.set(a.pokemon_b, a.score);
-  adj.get(a.pokemon_b)!.set(a.pokemon_a, a.score);
-});
-
-const opposites: Record<string, string> = {};
-data.habitats.forEach((h: any) => {
-  opposites[h.habitat] = h.opposite;
-});
+let data: any = null;
+let pokemonData: any = {};
+let itemsData: any = {};
+let adj = new Map<number, Map<number, number>>();
+let opposites: Record<string, string> = {};
 
 const HABITAT_COLORS: Record<string, string> = {
   Dark: "bg-neutral-800 text-neutral-100 border-neutral-700",
@@ -31,6 +19,7 @@ const HABITAT_COLORS: Record<string, string> = {
 };
 
 // --- TYPES ---
+
 interface HouseAssignment {
   id: string; 
   size: 'small' | 'medium' | 'large';
@@ -59,6 +48,7 @@ interface SavedQuery {
 }
 
 export default function App() {
+  const [loaded, setLoaded] = useState(data !== null);
   const [selectedPokemonIds, setSelectedPokemonIds] = useState<number[]>([]);
   const [placedItems, setPlacedItems] = useState<PlacedItem[]>([]);
   const [smallCount, setSmallCount] = useState(1);
@@ -71,11 +61,32 @@ export default function App() {
   const [queryName, setQueryName] = useState('');
 
   useEffect(() => {
+    if (!loaded) {
+      fetch('/data.json').then(res => res.json()).then(d => {
+        data = d;
+        pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
+        itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
+        data.adjacency.forEach((a: any) => {
+          if (!adj.has(a.pokemon_a)) adj.set(a.pokemon_a, new Map());
+          if (!adj.has(a.pokemon_b)) adj.set(a.pokemon_b, new Map());
+          adj.get(a.pokemon_a)!.set(a.pokemon_b, a.score);
+          adj.get(a.pokemon_b)!.set(a.pokemon_a, a.score);
+        });
+        data.habitats.forEach((h: any) => {
+          opposites[h.habitat] = h.opposite;
+        });
+        setLoaded(true);
+      });
+    }
+  }, [loaded]);
+
+  useEffect(() => {
     try {
+      if (!loaded) return;
       const saved = localStorage.getItem('pokopia_queries');
       if (saved) setSavedQueries(JSON.parse(saved));
     } catch {}
-  }, []);
+  }, [loaded]);
 
   const saveQuery = () => {
     const q: SavedQuery = {
@@ -239,9 +250,18 @@ export default function App() {
   };
 
   const filteredPokemon = useMemo(() => {
+    if (!loaded) return [];
     if (!search) return data.pokemon;
     return data.pokemon.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()));
-  }, [search]);
+  }, [search, loaded]);
+
+  if (!loaded) {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
 
   const lockedSmall = Object.keys(lockedAssignments).filter(id => id.startsWith('S')).length;
   const lockedMedium = Object.keys(lockedAssignments).filter(id => id.startsWith('M')).length;
