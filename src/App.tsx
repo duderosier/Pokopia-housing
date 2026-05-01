@@ -49,6 +49,7 @@ interface SavedQuery {
 
 export default function App() {
   const [loaded, setLoaded] = useState(data !== null);
+  const [error, setError] = useState<string | null>(null);
   const [selectedPokemonIds, setSelectedPokemonIds] = useState<number[]>([]);
   const [placedItems, setPlacedItems] = useState<PlacedItem[]>([]);
   const [smallCount, setSmallCount] = useState(1);
@@ -61,24 +62,33 @@ export default function App() {
   const [queryName, setQueryName] = useState('');
 
   useEffect(() => {
-    if (!loaded) {
-      fetch(`${import.meta.env.BASE_URL}data.json`).then(res => res.json()).then(d => {
-        data = d;
-        pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
-        itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
-        data.adjacency.forEach((a: any) => {
-          if (!adj.has(a.pokemon_a)) adj.set(a.pokemon_a, new Map());
-          if (!adj.has(a.pokemon_b)) adj.set(a.pokemon_b, new Map());
-          adj.get(a.pokemon_a)!.set(a.pokemon_b, a.score);
-          adj.get(a.pokemon_b)!.set(a.pokemon_a, a.score);
+    if (!loaded && !error) {
+      fetch(`${import.meta.env.BASE_URL}data.json`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load data.json: ${res.statusText}`);
+          return res.json();
+        })
+        .then(d => {
+          data = d;
+          pokemonData = Object.fromEntries(data.pokemon.map((p: any) => [p.id, p]));
+          itemsData = Object.fromEntries(data.items.map((i: any) => [i.id, i]));
+          data.adjacency.forEach((a: any) => {
+            if (!adj.has(a.pokemon_a)) adj.set(a.pokemon_a, new Map());
+            if (!adj.has(a.pokemon_b)) adj.set(a.pokemon_b, new Map());
+            adj.get(a.pokemon_a)!.set(a.pokemon_b, a.score);
+            adj.get(a.pokemon_b)!.set(a.pokemon_a, a.score);
+          });
+          data.habitats.forEach((h: any) => {
+            opposites[h.habitat] = h.opposite;
+          });
+          setLoaded(true);
+        })
+        .catch(err => {
+          console.error("Data load error:", err);
+          setError(err.message || 'Unknown error occurred while loading data');
         });
-        data.habitats.forEach((h: any) => {
-          opposites[h.habitat] = h.opposite;
-        });
-        setLoaded(true);
-      });
     }
-  }, [loaded]);
+  }, [loaded, error]);
 
   useEffect(() => {
     try {
@@ -257,8 +267,17 @@ export default function App() {
 
   if (!loaded) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-4">
+        {error ? (
+          <div className="text-center space-y-4 max-w-md bg-white p-6 rounded-xl border border-red-200">
+            <ShieldAlert className="w-12 h-12 text-red-500 mx-auto" />
+            <h2 className="font-semibold text-lg text-neutral-800">Failed to load data</h2>
+            <p className="text-red-600 text-sm">{error}</p>
+            <p className="text-neutral-500 text-sm">Please refresh the page and try again.</p>
+          </div>
+        ) : (
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+        )}
       </div>
     );
   }
